@@ -330,10 +330,17 @@ func highlightPipeSyntax(src string) string {
 
 // errPipe creates a rich error for pipe operation failures with syntax highlighting.
 func errPipe(op, msg, src string, col int) *ShellError {
+	// Clean up the message to avoid duplication if it already mentions the pipe op
+	cleanMsg := msg
+	if strings.HasPrefix(msg, "pipe "+op+": ") {
+		cleanMsg = strings.TrimPrefix(msg, "pipe "+op+": ")
+	} else if strings.HasPrefix(msg, "pipe \""+op+"\": ") {
+		cleanMsg = strings.TrimPrefix(msg, "pipe \""+op+"\": ")
+	}
 	return &ShellError{
 		Code:    "E008",
 		Kind:    "PipeError",
-		Message: fmt.Sprintf("pipe %q: %s", op, msg),
+		Message: fmt.Sprintf("pipe %q: %s", op, cleanMsg),
 		Source:  src,
 		Col:     col,
 		Hint:    getPipeHint(op),
@@ -363,7 +370,7 @@ func errUnknownPipe(op, src string, col int) *ShellError {
 func getPipeHint(op string) string {
 	hints := map[string]string{
 		"select":  "Use: select col1,col2 or select *",
-		"where":   "Use: where col=value, where col>value, where col~pattern",
+		"where":   "Use: where col=value, where col!=value, where col>value, where col<value, where col~pattern, where col!~pattern",
 		"grep":    "Use: grep <pattern> to search in text/columns",
 		"sort":    "Use: sort <column> [asc|desc]",
 		"limit":   "Use: limit <number> to restrict output",
