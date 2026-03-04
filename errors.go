@@ -11,27 +11,29 @@ import (
 
 // ShellError is a structured error with context, hint, and fix suggestion.
 type ShellError struct {
-	Code     string // e.g. "E001"
-	Kind     string // e.g. "SyntaxError", "TypeError", "CommandNotFound"
-	Message  string // short message
-	Detail   string // longer explanation
-	Source   string // the line of source that caused it
-	Col      int    // column offset (0-based, -1 = unknown)
-	Hint     string // what to check
-	Fix      string // suggested fix / example
-	Trace    []TraceFrame
+	Code    string // e.g. "E001"
+	Kind    string // e.g. "SyntaxError", "TypeError", "CommandNotFound"
+	Message string // short message
+	Detail  string // longer explanation
+	Source  string // the line of source that caused it
+	Col     int    // column offset (0-based, -1 = unknown)
+	Hint    string // what to check
+	Fix     string // suggested fix / example
+	Trace   []TraceFrame
 }
 
 type TraceFrame struct {
-	At   string // e.g. "line 3 in func bogo_sort"
-	Src  string // source snippet
+	At  string // e.g. "line 3 in func bogo_sort"
+	Src string // source snippet
 }
 
 func (e *ShellError) Error() string { return e.Message }
 
 // PrintError renders a rich, coloured error block to stdout.
 func PrintError(err *ShellError) {
-	if err == nil { return }
+	if err == nil {
+		return
+	}
 
 	// ── Header ──────────────────────────────────────────────────────────────
 	fmt.Printf("\n  %s%s[%s] %s%s\n",
@@ -39,7 +41,9 @@ func PrintError(err *ShellError) {
 
 	// ── Source + caret ───────────────────────────────────────────────────────
 	if err.Source != "" {
-		fmt.Printf("  %s│%s %s%s%s\n", ansiGrey, ansiReset, ansiWhite, err.Source, ansiReset)
+		// Check if source contains pipe operators and highlight them
+		highlightedSource := highlightPipeSyntax(err.Source)
+		fmt.Printf("  %s│%s %s%s%s\n", ansiGrey, ansiReset, ansiWhite, highlightedSource, ansiReset)
 		if err.Col >= 0 {
 			pad := strings.Repeat(" ", err.Col+4)
 			fmt.Printf("  %s│%s %s%s^── here%s\n", ansiGrey, ansiReset, pad, ansiRed, ansiReset)
@@ -174,7 +178,9 @@ func errSimple(msg string) *ShellError {
 
 // wrapErr wraps a plain Go error as a ShellError for nice display.
 func wrapErr(err error, src string) *ShellError {
-	if err == nil { return nil }
+	if err == nil {
+		return nil
+	}
 	msg := err.Error()
 	// Detect common patterns
 	if strings.Contains(msg, "no such file") {
@@ -237,7 +243,9 @@ func editDistance(a, b string) int {
 		dp[i] = make([]int, lb+1)
 		dp[i][0] = i
 	}
-	for j := 0; j <= lb; j++ { dp[0][j] = j }
+	for j := 0; j <= lb; j++ {
+		dp[0][j] = j
+	}
 	for i := 1; i <= la; i++ {
 		for j := 1; j <= lb; j++ {
 			if a[i-1] == b[j-1] {
@@ -251,8 +259,15 @@ func editDistance(a, b string) int {
 }
 
 func min3(a, b, c int) int {
-	if a < b { if a < c { return a }; return c }
-	if b < c { return b }
+	if a < b {
+		if a < c {
+			return a
+		}
+		return c
+	}
+	if b < c {
+		return b
+	}
 	return c
 }
 
@@ -265,4 +280,140 @@ func extractPath(msg string) string {
 		}
 	}
 	return ""
+}
+
+// highlightPipeSyntax adds syntax highlighting for pipe operators in source code.
+// It highlights: | (pipe), > (redirect), < (redirect), >> (append), 2> (stderr), &> (both)
+func highlightPipeSyntax(src string) string {
+	// Define pipe operators and their highlight colors
+	operators := []struct {
+		op    string
+		color string
+	}{
+		{"|", ansiMagenta},
+		{">", ansiYellow},
+		{"<", ansiYellow},
+		{">>", ansiYellow},
+		{"2>", ansiRed},
+		{"2>>", ansiRed},
+		{"&>", ansiBlue},
+		{"&>>", ansiBlue},
+	}
+
+	// Also highlight pipe keywords (select, where, grep, etc.)
+	pipeKeywords := []string{
+		"select", "cols", "where", "filter", "grep", "search",
+		"sort", "orderby", "order", "limit", "head", "top",
+		"skip", "offset", "tail", "count", "unique", "distinct",
+		"reverse", "fmt", "format", "add", "addcol", "rename", "renamecol",
+	}
+
+	result := src
+
+	// Highlight pipe operators
+	for _, o := range operators {
+		result = strings.ReplaceAll(result, o.op, o.color+o.op+ansiReset)
+	}
+
+	// Highlight pipe keywords (case-insensitive by replacing each occurrence)
+	for _, kw := range pipeKeywords {
+		// Use strings.ReplaceAll for each keyword
+		result = strings.ReplaceAll(result, kw, ansiBold+ansiCyan+kw+ansiReset)
+		// Handle capitalized versions
+		result = strings.ReplaceAll(result, strings.ToUpper(kw), ansiBold+ansiCyan+strings.ToUpper(kw)+ansiReset)
+		// Handle title case
+		result = strings.ReplaceAll(result, strings.Title(kw), ansiBold+ansiCyan+strings.Title(kw)+ansiReset)
+	}
+
+	return result
+}
+
+// errPipe creates a rich error for pipe operation failures with syntax highlighting.
+func errPipe(op, msg, src string, col int) *ShellError {
+	return &ShellError{
+		Code:    "E008",
+		Kind:    "PipeError",
+		Message: fmt.Sprintf("pipe %q: %s", op, msg),
+		Source:  src,
+		Col:     col,
+		Hint:    getPipeHint(op),
+		Fix:     getPipeFix(op),
+	}
+}
+
+// errUnknownPipe creates an error for unknown pipe operators.
+func errUnknownPipe(op, src string, col int) *ShellError {
+	suggestions := findSimilarPipe(op)
+	fix := ""
+	if suggestions != "" {
+		fix = fmt.Sprintf("did you mean: %s", suggestions)
+	}
+	return &ShellError{
+		Code:    "E009",
+		Kind:    "UnknownPipe",
+		Message: fmt.Sprintf("unknown pipe operator: %q", op),
+		Source:  src,
+		Col:     col,
+		Hint:    "Available pipes: select, where, grep, sort, limit, skip, count, unique, reverse, fmt, add, rename",
+		Fix:     fix,
+	}
+}
+
+// getPipeHint returns contextual hints for pipe operations.
+func getPipeHint(op string) string {
+	hints := map[string]string{
+		"select":  "Use: select col1,col2 or select *",
+		"where":   "Use: where col=value, where col>value, where col~pattern",
+		"grep":    "Use: grep <pattern> to search in text/columns",
+		"sort":    "Use: sort <column> [asc|desc]",
+		"limit":   "Use: limit <number> to restrict output",
+		"skip":    "Use: skip <number> to skip rows",
+		"count":   "Use: count to count rows/lines",
+		"unique":  "Use: unique or unique <column> to remove duplicates",
+		"reverse": "Use: reverse to reverse output",
+		"fmt":     "Use: fmt <json|csv|tsv> to format output",
+		"add":     "Use: add colname=value to add a column",
+		"rename":  "Use: rename oldcol=newcol to rename a column",
+	}
+	if h, ok := hints[op]; ok {
+		return h
+	}
+	return "Check pipe documentation with 'help pipes'"
+}
+
+// getPipeFix returns suggested fixes for pipe errors.
+func getPipeFix(op string) string {
+	fixes := map[string]string{
+		"select": "select name,age",
+		"where":  "where status=active",
+		"grep":   "grep error",
+		"sort":   "sort name asc",
+		"limit":  "limit 10",
+		"skip":   "skip 5",
+		"fmt":    "fmt json",
+		"add":    "add priority=high",
+		"rename": "oldname=newname",
+	}
+	if f, ok := fixes[op]; ok {
+		return f
+	}
+	return ""
+}
+
+// findSimilarPipe finds the closest pipe name using edit distance.
+func findSimilarPipe(op string) string {
+	pipeNames := []string{
+		"select", "where", "grep", "sort", "limit", "skip",
+		"count", "unique", "reverse", "fmt", "add", "rename",
+	}
+	best := ""
+	bestDist := 3
+	for _, p := range pipeNames {
+		d := editDistance(op, p)
+		if d < bestDist {
+			bestDist = d
+			best = p
+		}
+	}
+	return best
 }
