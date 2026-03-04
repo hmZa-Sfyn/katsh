@@ -21,7 +21,7 @@ func ApplyPipes(r *Result, pipes []PipeStage) (*Result, error) {
 		if err != nil {
 			// Build source showing the full pipe chain up to the error
 			src := buildPipeSource(pipes, i)
-			// Find the column of the failing pipe
+			// Find the column of the failing pipe (simple position: command + | + pipes)
 			col := findPipeCol(pipes, i)
 			return r, errPipe(p.Op, err.Error(), src, col)
 		}
@@ -30,18 +30,14 @@ func ApplyPipes(r *Result, pipes []PipeStage) (*Result, error) {
 }
 
 // buildPipeSource builds a source string showing the pipe chain.
+// The source will be highlighted by PrintError, so we just return plain text.
 func buildPipeSource(pipes []PipeStage, failedIdx int) string {
 	var parts []string
 	for i, p := range pipes {
 		if i > 0 {
-			parts = append(parts, ansiMagenta+"|"+ansiReset)
+			parts = append(parts, "|")
 		}
-		if i == failedIdx {
-			// Highlight the failed pipe in red
-			parts = append(parts, ansiRed+p.Op+ansiReset)
-		} else {
-			parts = append(parts, p.Op)
-		}
+		parts = append(parts, p.Op)
 		if len(p.Args) > 0 {
 			parts = append(parts, strings.Join(p.Args, " "))
 		}
@@ -50,13 +46,15 @@ func buildPipeSource(pipes []PipeStage, failedIdx int) string {
 }
 
 // findPipeCol finds the column position of a pipe in the original source.
+// This returns the position BEFORE the pipe operator starts.
 func findPipeCol(pipes []PipeStage, idx int) int {
-	// Start after the command, each pipe adds "| <op> " (~4 chars + op length)
+	// Simple calculation: each pipe adds 1 (|) + 1 (space) + op length
+	// + args length + 1 (space before next pipe)
 	col := 0
 	for i := 0; i < idx; i++ {
-		col += 2 + len(pipes[i].Op) // "| " + op
+		col += 1 + 1 + len(pipes[i].Op) // "| " + op
 		if len(pipes[i].Args) > 0 {
-			col += 1 + len(strings.Join(pipes[i].Args, " ")) // " " + args
+			col += len(strings.Join(pipes[i].Args, " ")) + 1 // " " + args
 		}
 	}
 	return col
