@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -42,9 +41,9 @@ func rawExec(command string, args []string, cwd string) (string, error) {
 	text := strings.TrimRight(string(out), "\n")
 	if err != nil {
 		if len(out) > 0 {
-			return "", fmt.Errorf("%s", text)
+			return "", errExecFailed(command, text, command+" "+strings.Join(args, " "))
 		}
-		return "", fmt.Errorf("%s: %w", command, err)
+		return "", errExecFailed(command, err.Error(), command+" "+strings.Join(args, " "))
 	}
 	return text, nil
 }

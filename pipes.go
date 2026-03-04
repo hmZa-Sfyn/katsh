@@ -53,7 +53,7 @@ func applyPipe(r *Result, p PipeStage) (*Result, error) {
 	case "rename", "renamecol":
 		return pipeRenameCol(r, p.Args)
 	default:
-		return r, fmt.Errorf("unknown pipe operator '%s'", p.Op)
+		return r, errUnknownPipe(p.Op, p.Op)
 	}
 }
 
@@ -73,7 +73,7 @@ func pipeSelect(r *Result, cols []string) (*Result, error) {
 		if existing[c] {
 			valid = append(valid, c)
 		} else {
-			return r, fmt.Errorf("column %q does not exist (available: %s)", c, strings.Join(r.Cols, ", "))
+			return r, errPipeColNotFound(c, r.Cols, fmt.Sprintf("select %s", strings.Join(cols, ",")))
 		}
 	}
 	if len(valid) == 0 {
@@ -101,10 +101,10 @@ func pipeSelect(r *Result, cols []string) (*Result, error) {
 
 func pipeWhere(r *Result, args []string) (*Result, error) {
 	if !r.IsTable {
-		return r, nil
+		return r, errNoInput("where", "where "+strings.Join(args, " "))
 	}
 	if len(args) == 0 {
-		return r, fmt.Errorf("usage: where col=value")
+		return r, errPipeUsage("where", "expected condition (e.g., col=value, col>10, col~pattern)", "where")
 	}
 	expr := strings.Join(args, " ")
 
@@ -123,7 +123,7 @@ func pipeWhere(r *Result, args []string) (*Result, error) {
 		}
 	}
 	if !colExists {
-		return r, fmt.Errorf("column %q not found", col)
+		return r, errPipeColNotFound(col, r.Cols, expr)
 	}
 
 	var rows []Row
@@ -148,7 +148,7 @@ func parseWhereExpr(expr string) (col, op, val string, err error) {
 				nil
 		}
 	}
-	return "", "", "", fmt.Errorf("invalid where expression %q — use col=value, col!=value, col>value, col~pattern", expr)
+	return "", "", "", errPipeUsage("where", "use col=value, col!=value, col>value, col~pattern", expr)
 }
 
 func matchesWhere(cell, op, needle string) bool {
@@ -184,7 +184,7 @@ func matchesWhere(cell, op, needle string) bool {
 
 func pipeGrep(r *Result, args []string) (*Result, error) {
 	if len(args) == 0 {
-		return r, fmt.Errorf("usage: grep <pattern>")
+		return r, errPipeUsage("grep", "expected search pattern", "grep")
 	}
 	needle := strings.ToLower(strings.Join(args, " "))
 
@@ -218,7 +218,7 @@ func pipeSort(r *Result, args []string) (*Result, error) {
 		return r, nil
 	}
 	if len(args) == 0 {
-		return r, fmt.Errorf("usage: sort <column> [asc|desc]")
+		return r, errPipeUsage("sort", "expected column name [asc|desc]", "sort")
 	}
 	col := strings.ToLower(args[0])
 	desc := len(args) > 1 && strings.ToLower(args[1]) == "desc"
@@ -253,11 +253,11 @@ func pipeSort(r *Result, args []string) (*Result, error) {
 
 func pipeLimit(r *Result, args []string) (*Result, error) {
 	if len(args) == 0 {
-		return r, fmt.Errorf("usage: limit <N>")
+		return r, errPipeUsage("limit", "expected number N", "limit")
 	}
 	n, err := strconv.Atoi(args[0])
 	if err != nil || n < 0 {
-		return r, fmt.Errorf("limit: invalid number %q", args[0])
+		return r, errPipeInvalidNum("limit", args[0], "limit "+args[0])
 	}
 	if !r.IsTable {
 		lines := strings.Split(r.Text, "\n")
@@ -278,11 +278,11 @@ func pipeLimit(r *Result, args []string) (*Result, error) {
 
 func pipeSkip(r *Result, args []string) (*Result, error) {
 	if len(args) == 0 {
-		return r, fmt.Errorf("usage: skip <N>")
+		return r, errPipeUsage("skip", "expected number N", "skip")
 	}
 	n, err := strconv.Atoi(args[0])
 	if err != nil || n < 0 {
-		return r, fmt.Errorf("skip: invalid number %q", args[0])
+		return r, errPipeInvalidNum("skip", args[0], "skip "+args[0])
 	}
 	if !r.IsTable {
 		lines := strings.Split(r.Text, "\n")
@@ -371,12 +371,12 @@ func pipeReverse(r *Result) (*Result, error) {
 
 func pipeFmt(r *Result, args []string) (*Result, error) {
 	if len(args) == 0 {
-		return r, fmt.Errorf("usage: fmt <json|csv|tsv>")
+		return r, errPipeUsage("fmt", "expected format (json|csv|tsv)", "fmt")
 	}
 	format := strings.ToLower(args[0])
 
 	if !r.IsTable {
-		return r, fmt.Errorf("fmt requires table input")
+		return r, errNoInput("fmt", "fmt "+format)
 	}
 
 	switch format {
@@ -414,7 +414,7 @@ func pipeFmt(r *Result, args []string) (*Result, error) {
 		return NewText(sb.String()), nil
 
 	default:
-		return r, fmt.Errorf("unknown format %q (supported: json, csv, tsv)", format)
+		return r, errPipeFormat(format, "fmt "+format)
 	}
 }
 
@@ -423,11 +423,11 @@ func pipeFmt(r *Result, args []string) (*Result, error) {
 
 func pipeAddCol(r *Result, args []string) (*Result, error) {
 	if !r.IsTable || len(args) == 0 {
-		return r, fmt.Errorf("usage: add colname=value")
+		return r, errPipeUsage("add", "expected colname=value", "add")
 	}
 	parts := strings.SplitN(strings.Join(args, " "), "=", 2)
 	if len(parts) != 2 {
-		return r, fmt.Errorf("add: expected colname=value")
+		return r, errPipeUsage("add", "expected colname=value format", "add "+strings.Join(args, " "))
 	}
 	newCol := strings.TrimSpace(parts[0])
 	val := strings.TrimSpace(parts[1])
@@ -450,11 +450,11 @@ func pipeAddCol(r *Result, args []string) (*Result, error) {
 
 func pipeRenameCol(r *Result, args []string) (*Result, error) {
 	if !r.IsTable || len(args) == 0 {
-		return r, fmt.Errorf("usage: rename oldcol=newcol")
+		return r, errPipeUsage("rename", "expected oldcol=newcol", "rename")
 	}
 	parts := strings.SplitN(strings.Join(args, " "), "=", 2)
 	if len(parts) != 2 {
-		return r, fmt.Errorf("rename: expected oldcol=newcol")
+		return r, errPipeUsage("rename", "expected oldcol=newcol format", "rename "+strings.Join(args, " "))
 	}
 	old := strings.TrimSpace(parts[0])
 	new_ := strings.TrimSpace(parts[1])
