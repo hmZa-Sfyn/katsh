@@ -16,9 +16,8 @@ import (
 
 // ApplyPipes runs all pipe stages in sequence on a Result.
 func ApplyPipes(r *Result, pipes []PipeStage) (*Result, error) {
-	var err error
 	for i, p := range pipes {
-		r, err = applyPipe(r, p)
+		r, err := applyPipe(r, p)
 		if err != nil {
 			// Build source showing the full pipe chain up to the error
 			src := buildPipeSource(pipes, i)
@@ -134,7 +133,8 @@ func pipeSelect(r *Result, cols []string) (*Result, error) {
 // | where col<val  (numeric)
 // | where col>=val
 // | where col<=val
-// | where col~pattern  (contains, case-insensitive)
+// | where col~val  (contains, case-insensitive)
+// | where col!~val (not contains)
 
 func pipeWhere(r *Result, args []string) (*Result, error) {
 	if !r.IsTable {
@@ -176,7 +176,8 @@ func pipeWhere(r *Result, args []string) (*Result, error) {
 
 // parseWhereExpr parses "col>=value" into (col, op, value).
 func parseWhereExpr(expr string) (col, op, val string, err error) {
-	ops := []string{"!=", ">=", "<=", "~", ">", "<", "="}
+	// IMPORTANT: longer operators must come first for proper matching
+	ops := []string{"!=", ">=", "<=", "!~", "~", ">", "<", "="}
 	for _, candidate := range ops {
 		idx := strings.Index(expr, candidate)
 		if idx > 0 {
@@ -186,7 +187,7 @@ func parseWhereExpr(expr string) (col, op, val string, err error) {
 				nil
 		}
 	}
-	return "", "", "", fmt.Errorf("invalid where expression %q — use col=value, col!=value, col>value, col~pattern", expr)
+	return "", "", "", fmt.Errorf("invalid where expression %q — use col=value, col!=value, col>value, col<value, col~pattern, col!~pattern", expr)
 }
 
 func matchesWhere(cell, op, needle string) bool {
@@ -200,6 +201,8 @@ func matchesWhere(cell, op, needle string) bool {
 		return cellLow != needleLow
 	case "~":
 		return strings.Contains(cellLow, needleLow)
+	case "!~":
+		return !strings.Contains(cellLow, needleLow)
 	case ">", "<", ">=", "<=":
 		cf := parseFloat(strings.TrimSuffix(cellLow, "%"))
 		nf := parseFloat(strings.TrimSuffix(needleLow, "%"))
