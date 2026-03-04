@@ -11,27 +11,29 @@ import (
 
 // ShellError is a structured error with context, hint, and fix suggestion.
 type ShellError struct {
-	Code     string // e.g. "E001"
-	Kind     string // e.g. "SyntaxError", "TypeError", "CommandNotFound"
-	Message  string // short message
-	Detail   string // longer explanation
-	Source   string // the line of source that caused it
-	Col      int    // column offset (0-based, -1 = unknown)
-	Hint     string // what to check
-	Fix      string // suggested fix / example
-	Trace    []TraceFrame
+	Code    string // e.g. "E001"
+	Kind    string // e.g. "SyntaxError", "TypeError", "CommandNotFound"
+	Message string // short message
+	Detail  string // longer explanation
+	Source  string // the line of source that caused it
+	Col     int    // column offset (0-based, -1 = unknown)
+	Hint    string // what to check
+	Fix     string // suggested fix / example
+	Trace   []TraceFrame
 }
 
 type TraceFrame struct {
-	At   string // e.g. "line 3 in func bogo_sort"
-	Src  string // source snippet
+	At  string // e.g. "line 3 in func bogo_sort"
+	Src string // source snippet
 }
 
 func (e *ShellError) Error() string { return e.Message }
 
 // PrintError renders a rich, coloured error block to stdout.
 func PrintError(err *ShellError) {
-	if err == nil { return }
+	if err == nil {
+		return
+	}
 
 	// ── Header ──────────────────────────────────────────────────────────────
 	fmt.Printf("\n  %s%s[%s] %s%s\n",
@@ -174,7 +176,9 @@ func errSimple(msg string) *ShellError {
 
 // wrapErr wraps a plain Go error as a ShellError for nice display.
 func wrapErr(err error, src string) *ShellError {
-	if err == nil { return nil }
+	if err == nil {
+		return nil
+	}
 	msg := err.Error()
 	// Detect common patterns
 	if strings.Contains(msg, "no such file") {
@@ -237,7 +241,9 @@ func editDistance(a, b string) int {
 		dp[i] = make([]int, lb+1)
 		dp[i][0] = i
 	}
-	for j := 0; j <= lb; j++ { dp[0][j] = j }
+	for j := 0; j <= lb; j++ {
+		dp[0][j] = j
+	}
 	for i := 1; i <= la; i++ {
 		for j := 1; j <= lb; j++ {
 			if a[i-1] == b[j-1] {
@@ -251,8 +257,15 @@ func editDistance(a, b string) int {
 }
 
 func min3(a, b, c int) int {
-	if a < b { if a < c { return a }; return c }
-	if b < c { return b }
+	if a < b {
+		if a < c {
+			return a
+		}
+		return c
+	}
+	if b < c {
+		return b
+	}
 	return c
 }
 
@@ -265,4 +278,199 @@ func extractPath(msg string) string {
 		}
 	}
 	return ""
+}
+
+// ── Pipe error constructors ─────────────────────────────────────────────────
+
+func errUnknownPipe(op, src string) *ShellError {
+	validPipes := []string{
+		"select/cols", "where/filter", "grep/search", "sort/orderby",
+		"limit/head/top", "skip/offset/tail", "count", "unique/distinct",
+		"reverse", "fmt/format", "add/addcol", "rename/renamecol",
+	}
+	return &ShellError{
+		Code:    "E012",
+		Kind:    "UnknownPipe",
+		Message: fmt.Sprintf("unknown pipe operator: %q", op),
+		Source:  src,
+		Col:     strings.Index(src, op),
+		Hint:    fmt.Sprintf("Available pipes: %s", strings.Join(validPipes, ", ")),
+		Fix:     "select col1,col2  |  where col=value  |  grep pattern  |  sort col asc",
+	}
+}
+
+func errPipeColNotFound(col string, available []string, src string) *ShellError {
+	return &ShellError{
+		Code:    "E013",
+		Kind:    "ColumnNotFound",
+		Message: fmt.Sprintf("column %q does not exist", col),
+		Source:  src,
+		Col:     strings.Index(src, col),
+		Hint:    fmt.Sprintf("Available columns: %s", strings.Join(available, ", ")),
+		Fix:     "ls | select name,size  (use existing column names)",
+	}
+}
+
+func errPipeUsage(op, usage, src string) *ShellError {
+	return &ShellError{
+		Code:    "E014",
+		Kind:    "PipeUsageError",
+		Message: fmt.Sprintf("%s: %s", op, usage),
+		Source:  src,
+		Col:     strings.Index(src, op),
+		Hint:    fmt.Sprintf("Usage: %s", usage),
+		Fix:     getExampleForPipe(op),
+	}
+}
+
+func errPipeInvalidNum(op, val, src string) *ShellError {
+	return &ShellError{
+		Code:    "E015",
+		Kind:    "InvalidNumber",
+		Message: fmt.Sprintf("%s: invalid number %q", op, val),
+		Source:  src,
+		Col:     strings.Index(src, val),
+		Hint:    "Expected a non-negative integer",
+		Fix:     "limit 10  (use a positive number)",
+	}
+}
+
+func errPipeFormat(format, src string) *ShellError {
+	return &ShellError{
+		Code:    "E016",
+		Kind:    "InvalidFormat",
+		Message: fmt.Sprintf("unknown format %q (supported: json, csv, tsv)", format),
+		Source:  src,
+		Col:     strings.Index(src, format),
+		Hint:    "Available formats: json, csv, tsv",
+		Fix:     "ls | fmt json  |  ls | fmt csv  |  ls | fmt tsv",
+	}
+}
+
+func getExampleForPipe(op string) string {
+	examples := map[string]string{
+		"select":    "ls | select name,size",
+		"cols":      "ls | cols name,size",
+		"where":     "ls | where size>1000",
+		"filter":    "ls | filter name=foo",
+		"grep":      "ls | grep .txt",
+		"search":    "ls | search pattern",
+		"sort":      "ls | sort size desc",
+		"orderby":   "ls | orderby name",
+		"limit":     "ls | limit 10",
+		"head":      "ls | head 5",
+		"top":       "ls | top 20",
+		"skip":      "ls | skip 5",
+		"offset":    "ls | offset 10",
+		"tail":      "ls | tail 5",
+		"unique":    "ls | unique type",
+		"distinct":  "ls | distinct",
+		"reverse":   "ls | reverse",
+		"fmt":       "ls | fmt json",
+		"format":    "ls | format csv",
+		"add":       "ls | add newcol=value",
+		"addcol":    "ls | addcol status=active",
+		"rename":    "ls | rename old=new",
+		"renamecol": "ls | renamecol a=b",
+	}
+	if ex, ok := examples[op]; ok {
+		return ex
+	}
+	return "see help for pipe syntax"
+}
+
+// ── Execution error constructors ─────────────────────────────────────────────
+
+func errExecFailed(cmd, msg, src string) *ShellError {
+	return &ShellError{
+		Code:    "E017",
+		Kind:    "ExecutionFailed",
+		Message: fmt.Sprintf("command failed: %s", cmd),
+		Detail:  msg,
+		Source:  src,
+		Col:     0,
+		Hint:    "Check the command syntax and arguments",
+		Fix:     "Try running the command directly in terminal to debug",
+	}
+}
+
+func errNoInput(cmd, src string) *ShellError {
+	return &ShellError{
+		Code:    "E018",
+		Kind:    "NoInput",
+		Message: fmt.Sprintf("%s requires table input but got text", cmd),
+		Source:  src,
+		Col:     0,
+		Hint:    "Some pipes require a table (ls, ps, find -ls, etc.)",
+		Fix:     "ls | select name  |  where size>0  (must start with table-producing command)",
+	}
+}
+
+// ── Parse error constructors ────────────────────────────────────────────────
+
+func errParseQuote(src string) *ShellError {
+	return &ShellError{
+		Code:    "E019",
+		Kind:    "UnclosedQuote",
+		Message: "unclosed quote in command",
+		Source:  src,
+		Col:     findQuotePos(src),
+		Hint:    "Make sure all quotes (single or double) are properly closed",
+		Fix:     "echo \"hello world\"  (matching pair of quotes)",
+	}
+}
+
+func errParsePipe(src string) *ShellError {
+	return &ShellError{
+		Code:    "E020",
+		Kind:    "InvalidPipe",
+		Message: "pipe operator | must separate two commands",
+		Source:  src,
+		Col:     strings.Index(src, "|"),
+		Hint:    "Check for missing command before or after the pipe",
+		Fix:     "ls | grep .txt  (command | pipe | command)",
+	}
+}
+
+func findQuotePos(s string) int {
+	inQuote := false
+	quoteChar := rune(0)
+	for i, ch := range s {
+		switch {
+		case inQuote:
+			if ch == quoteChar {
+				return -1
+			}
+		case ch == '"' || ch == '\'':
+			inQuote = true
+			quoteChar = ch
+			return i
+		}
+	}
+	return -1
+}
+
+// ── Scripting error constructors ────────────────────────────────────────────
+
+func errScriptSyntax(msg, src string) *ShellError {
+	return &ShellError{
+		Code:    "E021",
+		Kind:    "ScriptSyntaxError",
+		Message: msg,
+		Source:  src,
+		Col:     0,
+		Hint:    "Check script syntax (colons, indentation, keywords)",
+		Fix:     "if x > 0: echo yes  |  for i in range(10): echo i  |  func add(a,b) { return a + b }",
+	}
+}
+
+func errScriptFunc(name, msg, src string) *ShellError {
+	return &ShellError{
+		Code:    "E022",
+		Kind:    "FunctionError",
+		Message: fmt.Sprintf("function %s: %s", name, msg),
+		Source:  src,
+		Col:     strings.Index(src, name),
+		Hint:    "Check function definition and arguments",
+	}
 }
