@@ -140,7 +140,13 @@ func (sh *Shell) execLine(raw string) int {
 		if result != nil && (result.IsTable || strings.TrimSpace(result.Text) != "") {
 			result, err = ApplyPipes(result, pc.Pipes)
 			if err != nil {
-				sh.printErr(wrapErr(err, raw))
+				// Check if error is already a ShellError (don't double-wrap)
+				if se, ok := err.(*ShellError); ok {
+					se.Source = raw // Update source to show full command
+					sh.printErr(se)
+				} else {
+					sh.printErr(wrapErr(err, raw))
+				}
 				return 1
 			}
 			sh.printResult(result)
@@ -166,7 +172,13 @@ func (sh *Shell) execLine(raw string) int {
 
 	result, err = ApplyPipes(result, pc.Pipes)
 	if err != nil {
-		sh.printErr(wrapErr(err, raw))
+		// Check if error is already a ShellError (don't double-wrap)
+		if se, ok := err.(*ShellError); ok {
+			se.Source = raw // Update source to show full command
+			sh.printErr(se)
+		} else {
+			sh.printErr(wrapErr(err, raw))
+		}
 		return 1
 	}
 
