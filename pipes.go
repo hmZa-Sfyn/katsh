@@ -16,48 +16,14 @@ import (
 
 // ApplyPipes runs all pipe stages in sequence on a Result.
 func ApplyPipes(r *Result, pipes []PipeStage) (*Result, error) {
-	for i, p := range pipes {
-		r, err := applyPipe(r, p)
+	var err error
+	for _, p := range pipes {
+		r, err = applyPipe(r, p)
 		if err != nil {
-			// Build source showing the full pipe chain up to the error
-			src := buildPipeSource(pipes, i)
-			// Find the column of the failing pipe (simple position: command + | + pipes)
-			col := findPipeCol(pipes, i)
-			return r, errPipe(p.Op, err.Error(), src, col)
+			return r, fmt.Errorf("pipe '%s': %w", p.Op, err)
 		}
 	}
 	return r, nil
-}
-
-// buildPipeSource builds a source string showing the pipe chain.
-// The source will be highlighted by PrintError, so we just return plain text.
-func buildPipeSource(pipes []PipeStage, failedIdx int) string {
-	var parts []string
-	for i, p := range pipes {
-		if i > 0 {
-			parts = append(parts, "|")
-		}
-		parts = append(parts, p.Op)
-		if len(p.Args) > 0 {
-			parts = append(parts, strings.Join(p.Args, " "))
-		}
-	}
-	return strings.Join(parts, " ")
-}
-
-// findPipeCol finds the column position of a pipe in the original source.
-// This returns the position BEFORE the pipe operator starts.
-func findPipeCol(pipes []PipeStage, idx int) int {
-	// Simple calculation: each pipe adds 1 (|) + 1 (space) + op length
-	// + args length + 1 (space before next pipe)
-	col := 0
-	for i := 0; i < idx; i++ {
-		col += 1 + 1 + len(pipes[i].Op) // "| " + op
-		if len(pipes[i].Args) > 0 {
-			col += len(strings.Join(pipes[i].Args, " ")) + 1 // " " + args
-		}
-	}
-	return col
 }
 
 func applyPipe(r *Result, p PipeStage) (*Result, error) {
@@ -87,7 +53,7 @@ func applyPipe(r *Result, p PipeStage) (*Result, error) {
 	case "rename", "renamecol":
 		return pipeRenameCol(r, p.Args)
 	default:
-		return r, errUnknownPipe(p.Op, p.Op, 0)
+		return r, fmt.Errorf("unknown pipe operator '%s'", p.Op)
 	}
 }
 
@@ -107,7 +73,7 @@ func pipeSelect(r *Result, cols []string) (*Result, error) {
 		if existing[c] {
 			valid = append(valid, c)
 		} else {
-			return r, errPipe("select", fmt.Sprintf("column %q does not exist (available: %s)", c, strings.Join(r.Cols, ", ")), "select "+strings.Join(cols, ", "), 7)
+			return r, fmt.Errorf("column %q does not exist (available: %s)", c, strings.Join(r.Cols, ", "))
 		}
 	}
 	if len(valid) == 0 {
@@ -131,22 +97,20 @@ func pipeSelect(r *Result, cols []string) (*Result, error) {
 // | where col<val  (numeric)
 // | where col>=val
 // | where col<=val
-// | where col~val  (contains, case-insensitive)
-// | where col!~val (not contains)
+// | where col~pattern  (contains, case-insensitive)
 
 func pipeWhere(r *Result, args []string) (*Result, error) {
 	if !r.IsTable {
 		return r, nil
 	}
 	if len(args) == 0 {
-		return r, errPipe("where", "usage: where col=value", "where ", 6)
+		return r, fmt.Errorf("usage: where col=value")
 	}
 	expr := strings.Join(args, " ")
 
 	col, op, needle, err := parseWhereExpr(expr)
 	if err != nil {
-		src := "where " + expr
-		return r, errPipe("where", err.Error(), src, 6)
+		return r, err
 	}
 	col = strings.ToLower(col)
 
@@ -159,7 +123,7 @@ func pipeWhere(r *Result, args []string) (*Result, error) {
 		}
 	}
 	if !colExists {
-		return r, errPipe("where", fmt.Sprintf("column %q not found", col), "where "+expr, 6)
+		return r, fmt.Errorf("column %q not found", col)
 	}
 
 	var rows []Row
@@ -174,8 +138,7 @@ func pipeWhere(r *Result, args []string) (*Result, error) {
 
 // parseWhereExpr parses "col>=value" into (col, op, value).
 func parseWhereExpr(expr string) (col, op, val string, err error) {
-	// IMPORTANT: longer operators must come first for proper matching
-	ops := []string{"!=", ">=", "<=", "!~", "~", ">", "<", "="}
+	ops := []string{"!=", ">=", "<=", "~", ">", "<", "="}
 	for _, candidate := range ops {
 		idx := strings.Index(expr, candidate)
 		if idx > 0 {
@@ -185,7 +148,7 @@ func parseWhereExpr(expr string) (col, op, val string, err error) {
 				nil
 		}
 	}
-	return "", "", "", fmt.Errorf("invalid where expression %q — use col=value, col!=value, col>value, col<value, col~pattern, col!~pattern", expr)
+	return "", "", "", fmt.Errorf("invalid where expression %q — use col=value, col!=value, col>value, col~pattern", expr)
 }
 
 func matchesWhere(cell, op, needle string) bool {
@@ -199,8 +162,6 @@ func matchesWhere(cell, op, needle string) bool {
 		return cellLow != needleLow
 	case "~":
 		return strings.Contains(cellLow, needleLow)
-	case "!~":
-		return !strings.Contains(cellLow, needleLow)
 	case ">", "<", ">=", "<=":
 		cf := parseFloat(strings.TrimSuffix(cellLow, "%"))
 		nf := parseFloat(strings.TrimSuffix(needleLow, "%"))
@@ -223,7 +184,7 @@ func matchesWhere(cell, op, needle string) bool {
 
 func pipeGrep(r *Result, args []string) (*Result, error) {
 	if len(args) == 0 {
-		return r, errPipe("grep", "usage: grep <pattern>", "grep ", 5)
+		return r, fmt.Errorf("usage: grep <pattern>")
 	}
 	needle := strings.ToLower(strings.Join(args, " "))
 
@@ -257,7 +218,7 @@ func pipeSort(r *Result, args []string) (*Result, error) {
 		return r, nil
 	}
 	if len(args) == 0 {
-		return r, errPipe("sort", "usage: sort <column> [asc|desc]", "sort ", 5)
+		return r, fmt.Errorf("usage: sort <column> [asc|desc]")
 	}
 	col := strings.ToLower(args[0])
 	desc := len(args) > 1 && strings.ToLower(args[1]) == "desc"
@@ -292,11 +253,11 @@ func pipeSort(r *Result, args []string) (*Result, error) {
 
 func pipeLimit(r *Result, args []string) (*Result, error) {
 	if len(args) == 0 {
-		return r, errPipe("limit", "usage: limit <N>", "limit ", 6)
+		return r, fmt.Errorf("usage: limit <N>")
 	}
 	n, err := strconv.Atoi(args[0])
 	if err != nil || n < 0 {
-		return r, errPipe("limit", fmt.Sprintf("invalid number %q", args[0]), "limit "+args[0], 6)
+		return r, fmt.Errorf("limit: invalid number %q", args[0])
 	}
 	if !r.IsTable {
 		lines := strings.Split(r.Text, "\n")
@@ -317,11 +278,11 @@ func pipeLimit(r *Result, args []string) (*Result, error) {
 
 func pipeSkip(r *Result, args []string) (*Result, error) {
 	if len(args) == 0 {
-		return r, errPipe("skip", "usage: skip <N>", "skip ", 5)
+		return r, fmt.Errorf("usage: skip <N>")
 	}
 	n, err := strconv.Atoi(args[0])
 	if err != nil || n < 0 {
-		return r, errPipe("skip", fmt.Sprintf("invalid number %q", args[0]), "skip "+args[0], 5)
+		return r, fmt.Errorf("skip: invalid number %q", args[0])
 	}
 	if !r.IsTable {
 		lines := strings.Split(r.Text, "\n")
@@ -410,19 +371,19 @@ func pipeReverse(r *Result) (*Result, error) {
 
 func pipeFmt(r *Result, args []string) (*Result, error) {
 	if len(args) == 0 {
-		return r, errPipe("fmt", "usage: fmt <json|csv|tsv>", "fmt ", 4)
+		return r, fmt.Errorf("usage: fmt <json|csv|tsv>")
 	}
 	format := strings.ToLower(args[0])
 
 	if !r.IsTable {
-		return r, errPipe("fmt", "requires table input", "fmt "+format, 4)
+		return r, fmt.Errorf("fmt requires table input")
 	}
 
 	switch format {
 	case "json":
 		data, err := json.MarshalIndent(r.Rows, "", "  ")
 		if err != nil {
-			return r, errPipe("fmt", err.Error(), "fmt json", 4)
+			return r, err
 		}
 		return NewText(string(data)), nil
 
@@ -453,7 +414,7 @@ func pipeFmt(r *Result, args []string) (*Result, error) {
 		return NewText(sb.String()), nil
 
 	default:
-		return r, errPipe("fmt", fmt.Sprintf("unknown format %q (supported: json, csv, tsv)", format), "fmt "+format, 4)
+		return r, fmt.Errorf("unknown format %q (supported: json, csv, tsv)", format)
 	}
 }
 
@@ -462,11 +423,11 @@ func pipeFmt(r *Result, args []string) (*Result, error) {
 
 func pipeAddCol(r *Result, args []string) (*Result, error) {
 	if !r.IsTable || len(args) == 0 {
-		return r, errPipe("add", "usage: add colname=value", "add ", 4)
+		return r, fmt.Errorf("usage: add colname=value")
 	}
 	parts := strings.SplitN(strings.Join(args, " "), "=", 2)
 	if len(parts) != 2 {
-		return r, errPipe("add", "expected colname=value", "add "+strings.Join(args, " "), 4)
+		return r, fmt.Errorf("add: expected colname=value")
 	}
 	newCol := strings.TrimSpace(parts[0])
 	val := strings.TrimSpace(parts[1])
@@ -489,11 +450,11 @@ func pipeAddCol(r *Result, args []string) (*Result, error) {
 
 func pipeRenameCol(r *Result, args []string) (*Result, error) {
 	if !r.IsTable || len(args) == 0 {
-		return r, errPipe("rename", "usage: rename oldcol=newcol", "rename ", 7)
+		return r, fmt.Errorf("usage: rename oldcol=newcol")
 	}
 	parts := strings.SplitN(strings.Join(args, " "), "=", 2)
 	if len(parts) != 2 {
-		return r, errPipe("rename", "expected oldcol=newcol", "rename "+strings.Join(args, " "), 7)
+		return r, fmt.Errorf("rename: expected oldcol=newcol")
 	}
 	old := strings.TrimSpace(parts[0])
 	new_ := strings.TrimSpace(parts[1])
