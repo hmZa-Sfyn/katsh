@@ -4,6 +4,167 @@
 
 A Go shell where all command output is **structured** — parsed into typed rows and columns. Filter, transform, sort, and store results with a clean pipe syntax. All files are `package main` with zero external dependencies.
 
+![1](./image/image.png)
+![2](./image/image%20copy.png)
+
+### Help
+```sh
+~/workspaces/hamza/strutx/katsh ❯ help
+
+  
+  
+    ◈ StructSH — Structured Shell v0.2.0 ───�
+  
+    Every command output is a table. Chain transforms with | pipes.
+    Store any result in the Box with #=.
+  
+    ── NAVIGATION ────────────────────────────────────────────
+    cd [dir|-]          change directory (- for previous)
+    pwd                 print working directory
+    pushd <dir>         push dir onto stack and cd
+    popd                pop stack and cd back
+    dirs                show directory stack
+  
+    ── LISTING ────────────────────────────────────────────────
+    ls [-la] [dir]      list files as table
+    ll [dir]            ls -l shorthand
+    la [dir]            ls -la shorthand
+    tree [-L N] [dir]   visual directory tree
+    du [-s] [dir]       disk usage per entry
+    df                  filesystem usage
+  
+    ── FILE OPERATIONS ────────────────────────────────────────
+    cat [-n] <file>     show file (optional line numbers)
+    head [-n N] <file>  first N lines
+    tail [-n N] <file>  last N lines
+    touch <file...>     create/update files (shows table)
+    mkdir [-p] <dir>    create directory
+    rmdir <dir>         remove empty directory
+    rm [-rf] <file>     remove files/dirs
+    cp [-rv] <src> <dst> copy file or dir
+    mv [-v] <src> <dst> move/rename
+    ln [-s] <tgt> <lnk> create hard/soft link
+  
+    ── INSPECTION ─────────────────────────────────────────────
+    wc [-lwc] <file>    word/line/byte count (table)
+    stat <file...>      file metadata as table
+    file <file...>      detect file type
+    find [dir] [-name pattern] [-type f|d] [-maxdepth N] [-newer file]
+    diff <file1> <file2> line-by-line diff as table
+  
+    ── TEXT PROCESSING ────────────────────────────────────────
+    grep [-invr] <pat> <file>   regex search → table
+    sed 's/old/new/[g]' <file>  substitution
+    sed '/pat/d' <file>         delete matching lines
+    awk [-F sep] '{print $N}' <file>  field extract → table
+    cut -f N[-M] [-d sep] <file>      cut columns → table
+    tr <set1> <set2> <file>     transliterate characters
+    sort [-rnu] <file>          sort lines
+    uniq [-c] <file>            remove/count duplicates
+    split [-l N] <file> [prefix] split into chunks
+    tee <src> <dst>             copy and show file
+    xargs <cmd> <file>          run cmd per line in file
+  
+    ── PERMISSIONS ────────────────────────────────────────────
+    chmod <mode> <file...>   set permissions (numeric or u+x style)
+    chown <user> <file...>   change ownership (delegates to system)
+  
+    ── PROCESS ─────────────────────────────────────────────────
+    ps [aux]              list processes (table)
+    kill [-SIG] <pid...>  send signal
+    sleep <seconds>       pause (max 60s)
+    jobs                  show background jobs
+  
+    ── SYSTEM INFO ─────────────────────────────────────────────
+    uname [-a]            OS and arch info
+    uptime                system uptime
+    date [+format]        current date/time (table or formatted)
+    cal [month] [year]    calendar
+    hostname [-i]         hostname and IP
+    whoami                current user
+    id                    uid/gid/groups table
+    groups                group membership
+    who / w               logged-in users
+  
+    ── NETWORK ─────────────────────────────────────────────────
+    ping [-c N] <host>    ping (structured output)
+    curl [-o file] <url>  HTTP request
+    nslookup <host>       DNS lookup → table
+    ifconfig / ip         network interfaces → table
+  
+    ── HASHING ─────────────────────────────────────────────────
+    md5sum / sha1sum / sha256sum <file...>   hash files → table
+  
+    ── ARCHIVING (system) ──────────────────────────────────────
+    tar, gzip, gunzip, zip, unzip  (delegated to system)
+  
+    ── TEXT GENERATION ────────────────────────────────────────
+    echo [-ne] <text>     print text
+    printf <fmt> [args]   formatted print
+    yes [word]            repeat word (20 lines)
+    seq [first [step]] last   number sequence → table
+    base64 [-d] <file>    encode/decode base64
+    rev <file>            reverse each line
+  
+    ── VARIABLES & ENVIRONMENT ────────────────────────────────
+    set NAME=VAL          set session variable
+    unset NAME            remove variable
+    vars                  list session variables
+    export NAME=VAL       set and export to OS env
+    env / printenv        show environment variables
+  
+    ── IDENTIFICATION ──────────────────────────────────────────
+    which <cmd>           find command (alias/builtin/path)
+    type <cmd>            same as which
+    alias name=cmd        define alias
+    unalias name          remove alias
+    aliases               list all aliases
+  
+    ── NUMERIC & MISC ──────────────────────────────────────────
+    bc <expr>             calculate expression
+    factor <n>            prime factorization
+    random [max [min [count]]]  random numbers → table
+  
+    ── PIPE OPERATORS ─────────────────────────────────────────
+    | select col1,col2    keep columns
+    | where col=val       filter rows  (= != > < >= <= ~)
+    | grep text           search all columns
+    | sort col [asc|desc] sort rows
+    | limit N             first N rows
+    | skip N              skip N rows
+    | count               count rows
+    | unique [col]        deduplicate
+    | reverse             flip order
+    | fmt json|csv|tsv    reformat output
+    | add col=value       add a column
+    | rename old=new      rename a column
+  
+    ── BOX STORAGE ────────────────────────────────────────────
+    cmd #=           auto-store result
+    cmd #=key        store as named key
+    box              list all entries
+    box get <key>    retrieve entry
+    box rm <key>     remove entry
+    box rename o n   rename entry
+    box tag k tag    add tag
+    box search q     search
+    box export f     export JSON
+    box import f     import JSON
+    box clear        wipe all
+  
+    ── SESSION ─────────────────────────────────────────────────
+    history [N]      last N commands (table)
+    source <file>    run script file
+    watch [-n s] cmd run command repeatedly
+    man <cmd>        manual page / description
+    clear            clear screen
+    help             this help
+    true / false     exit 0 / exit 1
+    exit / quit      leave StructSH
+
+~/workspaces/hamza/strutx/katsh ❯ 
+```
+
 ---
 
 ## Quick Start
