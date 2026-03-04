@@ -83,10 +83,10 @@ func boxMsg(key string, id int, size string) string {
 func sectionHeader(title string) string {
 	line := strings.Repeat("─", 50)
 	return fmt.Sprintf("\n  %s%s %s %s%s\n",
-		ansiBold+ansiCyan, "◈", title, line[:max(0, 46-len(title))], ansiReset)
+		ansiBold+ansiCyan, "◈", title, line[:localMax(0, 46-len(title))], ansiReset)
 }
 
-func max(a, b int) int {
+func localMax(a, b int) int {
 	if a > b {
 		return a
 	}
